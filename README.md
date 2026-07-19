@@ -13,6 +13,36 @@ The preprocessing pipeline includes:
 - Feature scaling
 - One-Hot encoding
 
+
+## Dataset Download
+
+### 1. NSL-KDD (In-Distribution)
+
+The NSL-KDD dataset is downloaded automatically by the notebook, so no manual download is required.
+
+Files used:
+
+- `KDDTrain+.ARFF`
+- `KDDTest+.ARFF`
+
+---
+
+Please download the following datasets before running the notebook.
+
+
+### 2. UNSW-NB15 (Out-of-Distribution)
+
+Download:
+
+(https://www.kaggle.com/datasets/primus11/unsw-nb15-dataset)
+
+Files used:
+
+- `UNSW_NB15_training-set.csv`
+- `UNSW_NB15_testing-set.csv`
+
+---
+
 ## Datasets
 
 ### In-Distribution (ID)
