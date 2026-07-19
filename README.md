@@ -22,8 +22,8 @@ The NSL-KDD dataset is downloaded automatically by the notebook, so no manual do
 
 Files used:
 
-- `KDDTrain+.ARFF`
-- `KDDTest+.ARFF`
+- `KDDTrain+.txt`
+- `KDDTest+.txt`
 
 ---
 
