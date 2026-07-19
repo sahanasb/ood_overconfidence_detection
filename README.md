@@ -38,8 +38,8 @@ Download:
 
 Files used:
 
-- `UNSW_NB15_training-set.csv`
-- `UNSW_NB15_testing-set.csv`
+- `unsw_test.csv`
+- `unsw_train.csv`
 
 ---
 
