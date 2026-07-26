@@ -200,3 +200,39 @@ These fingerprint features will be used as inputs to Layer 2.
 - All processed datasets have identical feature dimensions.
 
 ---
+
+Training:
+
+## Layer 1
+- Models: Logistic Regression, SVM, MLP
+- Trained on NSL-KDD (Normal vs Attack)
+- Generates fingerprint features:
+  - Confidence
+  - Entropy
+  - Margin
+
+## Layer 2
+- Model: Decision Tree
+- Input features (in order):
+  1. Confidence
+  2. Entropy
+  3. Margin
+- Labels:
+  - 0 = Trustworthy (NSL-KDD)
+  - 1 = Suspicious (UNSW-NB15)
+
+## Dataset
+- Total: 197,885 samples
+- Train: 158,308 (80%)
+- Test: 39,577 (20%)
+- Stratified split, `random_state=42`
+
+## Saved Files
+Each model folder contains:
+- `best_<model>_detector.joblib`
+- `<model>_X_test.npy`
+- `<model>_y_test.npy`
+
+**Note:** Use the saved test sets only for evaluation. Do not retrain or tune the models using them.
+
+---
