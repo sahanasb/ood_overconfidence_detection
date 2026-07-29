@@ -221,12 +221,6 @@ Training:
   - 0 = Trustworthy (NSL-KDD)
   - 1 = Suspicious (UNSW-NB15)
 
-## Dataset
-- Total: 197,885 samples
-- Train: 158,308 (80%)
-- Test: 39,577 (20%)
-- Stratified split, `random_state=42`
-
 ## Saved Files
 Each model folder contains:
 - `best_<model>_detector.joblib`
