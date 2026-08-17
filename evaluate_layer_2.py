@@ -25,6 +25,8 @@ FINGERPRINT_ROOT = Path("model_outputs")
 DETECTOR_OUTPUT_DIR = Path("detector_model_outputs")
 EVAL_OUTPUT_DIR = Path("detector_model_outputs/evaluation")
 FEATURE_COLUMNS = ["confidence", "entropy", "margin"]
+CLASS_LABELS = ["Trustworthy\n(NSL)", "Suspicious\n(UNSW/OOD)"]
+METRIC_COLUMNS = ["Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"]
 
 MODEL_CONFIGS = {
     "logistic_regression": {
@@ -111,6 +113,153 @@ def print_metrics(metrics: dict) -> None:
     print(metrics["classification_report"])
 
 
+def build_report_table(all_metrics: list[dict]) -> pd.DataFrame:
+    """Assemble the report table: per-model metrics plus confusion-matrix counts."""
+    rows = []
+
+    for metrics in all_metrics:
+        true_neg, false_pos, false_neg, true_pos = metrics["confusion_matrix"].ravel()
+
+        rows.append(
+            {
+                "Model": metrics["model"],
+                "Split": metrics["split"],
+                "Samples": int(true_neg + false_pos + false_neg + true_pos),
+                "TP": int(true_pos),
+                "FP": int(false_pos),
+                "TN": int(true_neg),
+                "FN": int(false_neg),
+                "Accuracy": metrics["accuracy"],
+                "Precision": metrics["precision"],
+                "Recall": metrics["recall"],
+                "F1-Score": metrics["f1"],
+                "ROC-AUC": metrics["roc_auc"],
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def format_report_table(report_df: pd.DataFrame) -> pd.DataFrame:
+    """Render metric columns with a fixed 4-decimal width for display and export."""
+    display_df = report_df.copy()
+
+    for column in METRIC_COLUMNS:
+        display_df[column] = display_df[column].map(lambda value: f"{value:.4f}")
+
+    return display_df
+
+
+def write_markdown_table(display_df: pd.DataFrame, output_path: Path) -> None:
+    """Write the report table as a Markdown table for pasting into a report."""
+    columns = list(display_df.columns)
+    lines = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join("---" for _ in columns) + " |",
+    ]
+
+    for row in display_df.itertuples(index=False):
+        lines.append("| " + " | ".join(str(value) for value in row) + " |")
+
+    output_path.write_text("\n".join(lines) + "\n")
+    print(f"Saved report table (Markdown): {output_path}")
+
+
+def plot_report_table(display_df: pd.DataFrame, output_path: Path) -> None:
+    """Render the report table as an image for slides and write-ups."""
+    fig, ax = plt.subplots(
+        figsize=(1.05 * len(display_df.columns) + 2, 0.4 * len(display_df) + 1.2)
+    )
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=display_df.to_numpy(),
+        colLabels=display_df.columns,
+        cellLoc="center",
+        loc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.auto_set_column_width(list(range(len(display_df.columns))))
+    table.scale(1, 1.6)
+
+    for column_index in range(len(display_df.columns)):
+        header_cell = table[0, column_index]
+        header_cell.set_facecolor("#40466e")
+        header_cell.set_text_props(color="white", weight="bold")
+
+    ax.set_title(
+        "Layer 2 Detector — Evaluation Report\n"
+        "(positive class = Suspicious / UNSW-OOD)",
+        fontweight="bold",
+        pad=16,
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved report table (PNG): {output_path}")
+
+
+def draw_confusion_matrix(ax, confusion: np.ndarray, title: str) -> None:
+    """Draw one annotated confusion matrix with counts and per-row percentages."""
+    row_percentages = confusion / confusion.sum(axis=1, keepdims=True) * 100
+
+    ax.imshow(row_percentages, cmap="Blues", vmin=0, vmax=100)
+
+    for row in range(confusion.shape[0]):
+        for column in range(confusion.shape[1]):
+            ax.text(
+                column,
+                row,
+                f"{confusion[row, column]:,}\n({row_percentages[row, column]:.1f}%)",
+                ha="center",
+                va="center",
+                fontsize=11,
+                color="white" if row_percentages[row, column] > 50 else "black",
+            )
+
+    ax.set_xticks(range(len(CLASS_LABELS)), CLASS_LABELS)
+    ax.set_yticks(range(len(CLASS_LABELS)), CLASS_LABELS)
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("Actual label")
+    ax.set_title(title)
+
+
+def plot_confusion_matrices(all_metrics: list[dict]) -> None:
+    """Save one confusion-matrix figure per model, with a panel for each split."""
+    EVAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    for model_name, config in MODEL_CONFIGS.items():
+        display_name = config["display_name"]
+        model_metrics = [m for m in all_metrics if m["model"] == display_name]
+
+        if not model_metrics:
+            continue
+
+        fig, axes = plt.subplots(
+            1, len(model_metrics), figsize=(5.5 * len(model_metrics), 5)
+        )
+
+        for ax, metrics in zip(np.atleast_1d(axes), model_metrics):
+            draw_confusion_matrix(
+                ax,
+                metrics["confusion_matrix"],
+                f"{metrics['split']}\n"
+                f"Accuracy = {metrics['accuracy']:.4f} | F1 = {metrics['f1']:.4f}",
+            )
+
+        fig.suptitle(
+            f"Layer 2 Confusion Matrix — {display_name} Detector",
+            fontweight="bold",
+        )
+        fig.tight_layout()
+
+        output_path = EVAL_OUTPUT_DIR / f"layer2_confusion_matrix_{model_name}.png"
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+        print(f"Saved confusion matrix plot: {output_path}")
+
+
 def plot_roc_curves(all_metrics: list[dict]) -> None:
     """Plot ROC curves grouped by evaluation split."""
     EVAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -145,7 +294,6 @@ def plot_roc_curves(all_metrics: list[dict]) -> None:
 
 def main() -> None:
     all_metrics: list[dict] = []
-    summary_rows: list[dict] = []
 
     for model_name in MODEL_CONFIGS:
         model_dir = DETECTOR_OUTPUT_DIR / f"{model_name}_detector"
@@ -172,27 +320,24 @@ def main() -> None:
         print_metrics(blind_metrics)
         all_metrics.append(blind_metrics)
 
-        for metrics in (holdout_metrics, blind_metrics):
-            summary_rows.append(
-                {
-                    "model": metrics["model"],
-                    "split": metrics["split"],
-                    "accuracy": metrics["accuracy"],
-                    "precision": metrics["precision"],
-                    "recall": metrics["recall"],
-                    "f1": metrics["f1"],
-                    "roc_auc": metrics["roc_auc"],
-                }
-            )
-
-    summary_df = pd.DataFrame(summary_rows)
     EVAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    summary_path = EVAL_OUTPUT_DIR / "layer2_metrics_summary.csv"
-    summary_df.to_csv(summary_path, index=False)
-    print(f"\nSaved metrics summary: {summary_path}")
-    print("\nSummary table:")
-    print(summary_df.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
 
+    report_df = build_report_table(all_metrics)
+    display_df = format_report_table(report_df)
+
+    print(f"\n{'=' * 72}")
+    print("LAYER 2 EVALUATION REPORT (positive class = Suspicious / UNSW-OOD)")
+    print(f"{'=' * 72}")
+    print(display_df.to_string(index=False))
+    print()
+
+    summary_path = EVAL_OUTPUT_DIR / "layer2_metrics_summary.csv"
+    report_df.to_csv(summary_path, index=False)
+    print(f"Saved report table (CSV): {summary_path}")
+
+    write_markdown_table(display_df, EVAL_OUTPUT_DIR / "layer2_report_table.md")
+    plot_report_table(display_df, EVAL_OUTPUT_DIR / "layer2_report_table.png")
+    plot_confusion_matrices(all_metrics)
     plot_roc_curves(all_metrics)
 
 
