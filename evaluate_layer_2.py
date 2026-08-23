@@ -1,4 +1,4 @@
-"""Evaluate Layer 2 Decision Tree detectors on held-out and blind-test data."""
+"""Evaluate Layer 2 detectors on held-out and blind-test data."""
 
 from pathlib import Path
 
@@ -27,6 +27,13 @@ EVAL_OUTPUT_DIR = Path("detector_model_outputs/evaluation")
 FEATURE_COLUMNS = ["confidence", "entropy", "margin"]
 CLASS_LABELS = ["Trustworthy\n(NSL)", "Suspicious\n(UNSW/OOD)"]
 METRIC_COLUMNS = ["Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"]
+BAR_METRICS = [
+    ("accuracy", "Accuracy"),
+    ("precision", "Precision"),
+    ("recall", "Recall"),
+    ("f1", "F1-Score"),
+]
+SPLIT_NAMES = ["Internal Holdout", "Blind Test"]
 
 MODEL_CONFIGS = {
     "logistic_regression": {
@@ -200,6 +207,97 @@ def plot_report_table(display_df: pd.DataFrame, output_path: Path) -> None:
     print(f"Saved report table (PNG): {output_path}")
 
 
+def lowest_metric_value(metrics_list: list[dict]) -> float:
+    return min(metrics[key] for metrics in metrics_list for key, _ in BAR_METRICS)
+
+
+def draw_metric_bars(
+    ax, split_metrics: list[dict], title: str, y_min: float | None = None
+) -> None:
+    """Draw a grouped bar chart of the scalar metrics, one bar group per metric."""
+    group_positions = np.arange(len(BAR_METRICS))
+    bar_width = 0.8 / len(split_metrics)
+    if y_min is None:
+        y_min = max(0.0, lowest_metric_value(split_metrics) - 0.08)
+
+    for model_index, metrics in enumerate(split_metrics):
+        offsets = group_positions + (model_index - (len(split_metrics) - 1) / 2) * bar_width
+        values = [metrics[key] for key, _ in BAR_METRICS]
+        bars = ax.bar(offsets, values, bar_width, label=metrics["model"])
+        ax.bar_label(bars, fmt="%.3f", fontsize=8, padding=2)
+
+    ax.set_xticks(group_positions, [label for _, label in BAR_METRICS])
+    ax.set_ylabel("Score")
+    ax.set_ylim(y_min, 1.02)
+    ax.grid(axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.set_title(title)
+
+
+def add_model_legend(fig, ax, column_count: int) -> None:
+    """Place the model legend below the axes so it never covers the bars."""
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=column_count,
+        fontsize=9,
+        frameon=False,
+    )
+
+
+def plot_metric_bars(all_metrics: list[dict]) -> None:
+    """Save grouped bar charts comparing accuracy, precision, recall and F1."""
+    EVAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    available_splits = [
+        split_name
+        for split_name in SPLIT_NAMES
+        if any(m["split"] == split_name for m in all_metrics)
+    ]
+    if not available_splits:
+        return
+
+    for split_name in available_splits:
+        split_metrics = [m for m in all_metrics if m["split"] == split_name]
+
+        fig, ax = plt.subplots(figsize=(9, 5.5))
+        draw_metric_bars(ax, split_metrics, f"Layer 2 Detector Metrics — {split_name}")
+        add_model_legend(fig, ax, len(split_metrics))
+        fig.tight_layout(rect=(0, 0.06, 1, 1))
+
+        filename = split_name.lower().replace(" ", "_")
+        output_path = EVAL_OUTPUT_DIR / f"layer2_metric_bars_{filename}.png"
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+        print(f"Saved metric bar plot: {output_path}")
+
+    fig, axes = plt.subplots(
+        1, len(available_splits), figsize=(8 * len(available_splits), 5.5), sharey=True
+    )
+
+    shared_y_min = max(0.0, lowest_metric_value(all_metrics) - 0.08)
+
+    for ax, split_name in zip(np.atleast_1d(axes), available_splits):
+        split_metrics = [m for m in all_metrics if m["split"] == split_name]
+        draw_metric_bars(ax, split_metrics, split_name, y_min=shared_y_min)
+
+    first_ax = np.atleast_1d(axes)[0]
+    add_model_legend(fig, first_ax, len(first_ax.containers))
+    fig.suptitle(
+        "Layer 2 Detector Metrics — Model Comparison\n"
+        "(positive class = Suspicious / UNSW-OOD)",
+        fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+
+    output_path = EVAL_OUTPUT_DIR / "layer2_metric_bars_all_splits.png"
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved metric bar plot: {output_path}")
+
+
 def draw_confusion_matrix(ax, confusion: np.ndarray, title: str) -> None:
     """Draw one annotated confusion matrix with counts and per-row percentages."""
     row_percentages = confusion / confusion.sum(axis=1, keepdims=True) * 100
@@ -264,7 +362,7 @@ def plot_roc_curves(all_metrics: list[dict]) -> None:
     """Plot ROC curves grouped by evaluation split."""
     EVAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    for split_name in ["Internal Holdout", "Blind Test"]:
+    for split_name in SPLIT_NAMES:
         split_metrics = [m for m in all_metrics if m["split"] == split_name]
         if not split_metrics:
             continue
@@ -337,6 +435,7 @@ def main() -> None:
 
     write_markdown_table(display_df, EVAL_OUTPUT_DIR / "layer2_report_table.md")
     plot_report_table(display_df, EVAL_OUTPUT_DIR / "layer2_report_table.png")
+    plot_metric_bars(all_metrics)
     plot_confusion_matrices(all_metrics)
     plot_roc_curves(all_metrics)
 
